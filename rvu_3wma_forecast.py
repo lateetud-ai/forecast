@@ -34,6 +34,7 @@
 # MAGIC 5. Coverage summary
 # MAGIC 6. Display results
 # MAGIC 7. (Optional) Visualisation — actual vs predicted
+# MAGIC 8. Accuracy evaluation — MAE / RMSE / MAPE by site & priority
 
 # COMMAND ----------
 
@@ -388,3 +389,117 @@ else:
     plt.tight_layout()
     display(fig)
     plt.close(fig)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 9. Accuracy Evaluation — MAE / RMSE / MAPE
+# MAGIC
+# MAGIC Metrics are computed on **valid rows only**:
+# MAGIC - `RVU_actual` is not NULL
+# MAGIC - `RVU_predicted` is not NULL
+# MAGIC
+# MAGIC For **MAPE**, rows where `RVU_actual = 0` are additionally excluded to avoid
+# MAGIC division by zero. All other metrics (MAE, RMSE) still use those rows.
+# MAGIC
+# MAGIC | Metric | Formula |
+# MAGIC |--------|---------|
+# MAGIC | MAE | mean(\|actual − predicted\|) |
+# MAGIC | RMSE | √mean((actual − predicted)²) |
+# MAGIC | MAPE | mean(\|actual − predicted\| / \|actual\|) × 100 |
+# MAGIC | Accuracy % | (1 − MAPE / 100) × 100 |
+
+# COMMAND ----------
+
+# ── Filter: rows valid for MAE / RMSE ────────────────────────────────────────
+metrics_df: pd.DataFrame = predictions_df.dropna(
+    subset=["RVU_actual", "RVU_predicted"]
+).copy()
+
+total_predictions = len(predictions_df)
+rows_for_metrics = len(metrics_df)
+pct_used = 100.0 * rows_for_metrics / total_predictions if total_predictions > 0 else 0.0
+
+print("=" * 50)
+print("Accuracy Evaluation — Row Usage")
+print("=" * 50)
+print(f"  Total prediction rows        : {total_predictions:>6,}")
+print(f"  Rows used for metrics        : {rows_for_metrics:>6,}")
+print(f"  Coverage                     : {pct_used:>6.1f}%")
+
+if pct_used < 50.0:
+    print(
+        "\n  ⚠ WARNING: Less than 50% of prediction rows have valid actual & "
+        "predicted values. Accuracy metrics may not be representative."
+    )
+print("=" * 50)
+
+# ── Helper: compute metrics for a grouped dataframe ──────────────────────────
+
+def compute_metrics(grp: pd.DataFrame) -> pd.Series:
+    """
+    Compute MAE, RMSE, MAPE, and Accuracy_Percentage for a group.
+
+    MAPE excludes rows where RVU_actual == 0.
+    Returns a pandas Series with named fields.
+    """
+    n = len(grp)
+    error = grp["RVU_actual"] - grp["RVU_predicted"]
+
+    mae = round(error.abs().mean(), 4)
+    rmse = round(float(np.sqrt((error**2).mean())), 4)
+
+    mape_df = grp[grp["RVU_actual"] != 0]
+    if len(mape_df) > 0:
+        mape_error = mape_df["RVU_actual"] - mape_df["RVU_predicted"]
+        mape = round(float((mape_error.abs() / mape_df["RVU_actual"].abs()).mean() * 100), 4)
+    else:
+        mape = float("nan")
+
+    accuracy = round((1 - mape / 100) * 100, 4) if not np.isnan(mape) else float("nan")
+
+    return pd.Series(
+        {
+            "count_of_records_used": n,
+            "MAE": mae,
+            "RMSE": rmse,
+            "MAPE": mape,
+            "Accuracy_Percentage": accuracy,
+        }
+    )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 9A. Site-Level Accuracy
+
+# COMMAND ----------
+
+site_accuracy_df: pd.DataFrame = (
+    metrics_df
+    .groupby("Modified_Clario_Site_ID", sort=True)
+    .apply(compute_metrics, include_groups=False)
+    .reset_index()
+)
+site_accuracy_df["count_of_records_used"] = site_accuracy_df["count_of_records_used"].astype(int)
+
+print(f"site_accuracy_df  : {len(site_accuracy_df)} sites")
+display(site_accuracy_df)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 9B. Priority-Level Accuracy
+
+# COMMAND ----------
+
+priority_accuracy_df: pd.DataFrame = (
+    metrics_df
+    .groupby("Priority", sort=True)
+    .apply(compute_metrics, include_groups=False)
+    .reset_index()
+)
+priority_accuracy_df["count_of_records_used"] = priority_accuracy_df["count_of_records_used"].astype(int)
+
+print(f"priority_accuracy_df : {len(priority_accuracy_df)} priorities")
+display(priority_accuracy_df)
