@@ -477,8 +477,8 @@ def compute_metrics(grp: pd.DataFrame) -> pd.Series:
 
 site_accuracy_df: pd.DataFrame = (
     metrics_df
-    .groupby("Modified_Clario_Site_ID", sort=True)
-    .apply(compute_metrics, include_groups=False)
+    .groupby("Modified_Clario_Site_ID", sort=True)[["RVU_actual", "RVU_predicted"]]
+    .apply(compute_metrics)
     .reset_index()
 )
 site_accuracy_df["count_of_records_used"] = site_accuracy_df["count_of_records_used"].astype(int)
@@ -495,8 +495,8 @@ display(site_accuracy_df)
 
 priority_accuracy_df: pd.DataFrame = (
     metrics_df
-    .groupby("Priority", sort=True)
-    .apply(compute_metrics, include_groups=False)
+    .groupby("Priority", sort=True)[["RVU_actual", "RVU_predicted"]]
+    .apply(compute_metrics)
     .reset_index()
 )
 priority_accuracy_df["count_of_records_used"] = priority_accuracy_df["count_of_records_used"].astype(int)
